@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ settings.app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}" />
+  </head>
+  <body>
+    <main class="page-shell">
+      {% if flash_message %}
+      <div class="flash flash-{{ flash_level }}">{{ flash_message }}</div>
+      {% endif %}
+
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <p class="eyebrow">Public IP Watcher</p>
+          <h1>{{ settings.app_name }}</h1>
+          <p class="hero-text">
+            面向 NAS 部署的公网 IP 变动监控服务。检测到拨号 IP 更新后自动发送邮件，并在页面保留变动日志。
+          </p>
+        </div>
+        <div class="status-grid">
+          <article class="stat-card accent">
+            <span class="stat-label">当前公网 IP</span>
+            <strong class="stat-value">{{ snapshot.current_ip or "尚未检测" }}</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">最近检查时间</span>
+            <strong class="stat-value small">{{ snapshot.last_checked_at or "暂无" }}</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">最近变动时间</span>
+            <strong class="stat-value small">{{ snapshot.last_change_at or "暂无" }}</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">邮件通知</span>
+            <strong class="stat-value small">
+              {% if snapshot.mail_enabled %}已启用{% else %}未配置{% endif %}
+            </strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <div class="stack-panel">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">Monitor Status</p>
+                <h2>运行状态</h2>
+              </div>
+            </div>
+            <dl class="details-list">
+              <div>
+                <dt>检查间隔</dt>
+                <dd>{{ settings.check_interval_seconds }} 秒</dd>
+              </div>
+              <div>
+                <dt>记录总数</dt>
+                <dd>{{ snapshot.total_changes }}</dd>
+              </div>
+              <div>
+                <dt>时区标识</dt>
+                <dd>{{ settings.timezone_label }}</dd>
+              </div>
+              <div>
+                <dt>最近错误</dt>
+                <dd class="{% if snapshot.last_error %}error{% endif %}">
+                  {{ snapshot.last_error or "无" }}
+                </dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">Mail Settings</p>
+                <h2>邮件配置</h2>
+              </div>
+            </div>
+            <form class="mail-form" method="post" action="/settings/mail">
+              <label>
+                <span>SMTP 主机</span>
+                <input type="text" name="smtp_host" value="{{ mail_settings.smtp_host }}" />
+              </label>
+              <label>
+                <span>SMTP 端口</span>
+                <input type="number" name="smtp_port" value="{{ mail_settings.smtp_port }}" />
+              </label>
+              <label>
+                <span>用户名</span>
+                <input type="text" name="smtp_username" value="{{ mail_settings.smtp_username }}" />
+              </label>
+              <label>
+                <span>密码</span>
+                <input type="password" name="smtp_password" value="{{ mail_settings.smtp_password }}" />
+              </label>
+              <label>
+                <span>发件人</span>
+                <input type="email" name="mail_from" value="{{ mail_settings.mail_from }}" />
+              </label>
+              <label>
+                <span>收件人</span>
+                <textarea name="mail_to" rows="3">{{ mail_settings.mail_to }}</textarea>
+              </label>
+              <label>
+                <span>邮件标题前缀</span>
+                <input type="text" name="subject_prefix" value="{{ mail_settings.subject_prefix }}" />
+              </label>
+              <div class="switch-row">
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    name="smtp_starttls"
+                    value="true"
+                    {% if mail_settings.smtp_starttls %}checked{% endif %}
+                  />
+                  <span>启用 STARTTLS</span>
+                </label>
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    name="smtp_ssl"
+                    value="true"
+                    {% if mail_settings.smtp_ssl %}checked{% endif %}
+                  />
+                  <span>使用 SSL</span>
+                </label>
+              </div>
+              <p class="form-hint">常见配置：`465 + SSL`，或 `587 + STARTTLS`，不要同时勾选两者。</p>
+              <div class="form-actions">
+                <button type="submit" class="button button-primary">保存配置</button>
+                <button
+                  type="submit"
+                  class="button button-secondary"
+                  formaction="/settings/mail/test"
+                  formmethod="post"
+                >
+                  发送测试邮件
+                </button>
+              </div>
+            </form>
+          </article>
+        </div>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">Change Feed</p>
+              <h2>公网变动日志</h2>
+            </div>
+            <a class="button button-secondary" href="/export/ip-changes.csv">导出全部 CSV</a>
+          </div>
+          <div class="table-meta">
+            <span>共 {{ pagination.total_items }} 条记录</span>
+            <span>第 {{ pagination.page }} / {{ pagination.total_pages }} 页</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>IP</th>
+                  <th>来源</th>
+                  <th>邮件</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in changes %}
+                <tr>
+                  <td>{{ item.changed_at }}</td>
+                  <td class="mono">{{ item.ip_address }}</td>
+                  <td>{{ item.source }}</td>
+                  <td>
+                    <span class="badge badge-{{ item.notification_status }}">
+                      {% if item.notification_status == "sent" %}
+                      已发送
+                      {% elif item.notification_status == "failed" %}
+                      失败
+                      {% else %}
+                      首次记录
+                      {% endif %}
+                    </span>
+                    {% if item.notification_error %}
+                    <div class="error-note">{{ item.notification_error }}</div>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="4" class="empty-state">还没有公网 IP 变动记录。</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            {% if pagination.has_previous %}
+            <a class="page-link" href="/?page={{ pagination.page - 1 }}">上一页</a>
+            {% else %}
+            <span class="page-link disabled">上一页</span>
+            {% endif %}
+
+            {% for page_number in page_numbers %}
+            {% if page_number == pagination.page %}
+            <span class="page-link active">{{ page_number }}</span>
+            {% else %}
+            <a class="page-link" href="/?page={{ page_number }}">{{ page_number }}</a>
+            {% endif %}
+            {% endfor %}
+
+            {% if pagination.has_next %}
+            <a class="page-link" href="/?page={{ pagination.page + 1 }}">下一页</a>
+            {% else %}
+            <span class="page-link disabled">下一页</span>
+            {% endif %}
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
