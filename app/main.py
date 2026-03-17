@@ -35,6 +35,7 @@ def build_redirect(message: str, level: str = "success") -> RedirectResponse:
 async def lifespan(_: FastAPI):
     init_db()
     monitor.ensure_default_mail_settings()
+    monitor.ensure_default_push_settings()
     if settings.startup_check_enabled:
         await monitor.check_once()
     task = asyncio.create_task(_polling_loop(), name="public-ip-monitor")
@@ -71,6 +72,7 @@ async def index(request: Request) -> HTMLResponse:
             "pagination": pagination,
             "page_numbers": list(range(start_page, end_page + 1)),
             "mail_settings": monitor.get_mail_settings().masked(),
+            "push_settings": monitor.get_push_settings().masked(),
             "flash_message": request.query_params.get("message"),
             "flash_level": request.query_params.get("level", "success"),
         },
@@ -98,6 +100,24 @@ async def test_mail_settings(request: Request) -> RedirectResponse:
     except Exception as exc:  # noqa: BLE001
         return build_redirect(f"测试邮件发送失败: {exc}", "error")
     return build_redirect("测试邮件已发送，请检查收件箱")
+
+
+@app.post("/settings/push")
+async def save_push_settings(request: Request) -> RedirectResponse:
+    form = await request.form()
+    monitor.update_push_settings({key: str(value) for key, value in form.items()})
+    return build_redirect("消息推送配置已保存")
+
+
+@app.post("/settings/push/test")
+async def test_push_settings(request: Request) -> RedirectResponse:
+    form = await request.form()
+    try:
+        monitor.update_push_settings({key: str(value) for key, value in form.items()})
+        await monitor.send_test_push()
+    except Exception as exc:  # noqa: BLE001
+        return build_redirect(f"测试推送发送失败: {exc}", "error")
+    return build_redirect("测试推送已发送，请检查消息助手")
 
 
 @app.get("/api/status", response_class=JSONResponse)

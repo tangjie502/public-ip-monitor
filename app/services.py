@@ -10,6 +10,7 @@ import ssl
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -105,6 +106,23 @@ def format_timestamp(value: str | None) -> str | None:
     return dt.astimezone(settings.timezone).strftime("%Y-%m-%d %H:%M:%S")
 
 
+@dataclass(slots=True)
+class PushSettings:
+    enabled: bool
+    push_url: str
+
+    @property
+    def push_enabled(self) -> bool:
+        return self.enabled and bool(self.push_url.strip())
+
+    def masked(self) -> dict[str, object]:
+        return {
+            "enabled": self.enabled,
+            "push_url": self.push_url,
+            "push_enabled": self.push_enabled,
+        }
+
+
 class PublicIPMonitor:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -120,6 +138,24 @@ class PublicIPMonitor:
             "mail_from": settings.default_mail_from,
             "mail_to": ",".join(settings.default_mail_to),
             "subject_prefix": settings.default_subject_prefix,
+        }
+        values_to_seed: dict[str, str] = {}
+        for key, value in defaults.items():
+            existing_value = get_state(key)
+            if existing_value is None:
+                values_to_seed[key] = value
+                continue
+            if existing_value.strip():
+                continue
+            if value.strip():
+                values_to_seed[key] = value
+        if values_to_seed:
+            set_many_state(values_to_seed)
+
+    def ensure_default_push_settings(self) -> None:
+        defaults = {
+            "message_push_enabled": str(settings.default_message_push_enabled).lower(),
+            "message_push_url": settings.default_message_push_url,
         }
         values_to_seed: dict[str, str] = {}
         for key, value in defaults.items():
@@ -168,6 +204,23 @@ class PublicIPMonitor:
         }
         set_many_state(values)
         return self.get_mail_settings()
+
+    def get_push_settings(self) -> PushSettings:
+        return PushSettings(
+            enabled=parse_bool(
+                get_state("message_push_enabled"),
+                settings.default_message_push_enabled,
+            ),
+            push_url=get_state("message_push_url") or "",
+        )
+
+    def update_push_settings(self, form_data: dict[str, str]) -> PushSettings:
+        values = {
+            "message_push_enabled": str(parse_bool(form_data.get("message_push_enabled"))).lower(),
+            "message_push_url": form_data.get("message_push_url", "").strip(),
+        }
+        set_many_state(values)
+        return self.get_push_settings()
 
     async def fetch_public_ip(self) -> tuple[str, str]:
         timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -240,32 +293,141 @@ class PublicIPMonitor:
         except OSError as exc:
             raise RuntimeError(f"无法连接 SMTP 服务器: {exc}") from exc
 
+    def _build_message_push_url(
+        self,
+        *,
+        push_url: str,
+        title: str,
+        subtitle: str,
+        message: str,
+    ) -> str:
+        parsed = urlsplit(push_url.strip())
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query.update(
+            {
+                "title": title,
+                "subtitle": subtitle,
+                "message": message,
+            }
+        )
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(query),
+                parsed.fragment,
+            )
+        )
+
+    async def send_message_push(self, *, title: str, subtitle: str, message: str) -> None:
+        push_settings = self.get_push_settings()
+        if not push_settings.push_enabled:
+            raise RuntimeError("消息推送助手未配置")
+
+        request_url = self._build_message_push_url(
+            push_url=push_settings.push_url,
+            title=title,
+            subtitle=subtitle,
+            message=message,
+        )
+        timeout = httpx.Timeout(settings.request_timeout_seconds)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(request_url)
+            response.raise_for_status()
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RuntimeError("消息推送助手返回了无法解析的响应") from exc
+
+        if payload.get("code") != 0:
+            error_message = payload.get("message") or "消息推送助手返回失败"
+            detail = payload.get("data")
+            if isinstance(detail, dict) and detail.get("message"):
+                error_message = f"{error_message}: {detail['message']}"
+            raise RuntimeError(error_message)
+
     async def send_change_email(self, *, new_ip: str, previous_ip: str | None, changed_at: str) -> None:
         mail_settings = self.get_mail_settings()
         body_lines = [
-            f"Current public IP: {new_ip}",
-            f"Previous public IP: {previous_ip or 'unknown'}",
-            f"Detected at ({settings.timezone_label}): {format_timestamp(changed_at) or changed_at}",
+            "你的 NAS 监控到公网 IP 已更新。",
+            "",
+            f"新的公网 IP：{new_ip}",
+            f"之前的公网 IP：{previous_ip or '首次记录'}",
+            f"更新时间：{format_timestamp(changed_at) or changed_at}",
+            "",
+            "如果你有远程访问、DDNS 或端口映射配置，建议确认是否正常。",
         ]
         if settings.base_url:
-            body_lines.append(f"Dashboard: {settings.base_url.rstrip('/')}/")
+            body_lines.extend(
+                [
+                    "",
+                    "管理页面：",
+                    f"{settings.base_url.rstrip('/')}/",
+                ]
+            )
         await self.send_email(
             mail_settings=mail_settings,
-            subject=f"{mail_settings.subject_prefix} Public IP changed to {new_ip}",
+            subject=f"{mail_settings.subject_prefix} 家里网络公网 IP 更新了",
             body_lines=body_lines,
+        )
+
+    async def send_change_push(
+        self,
+        *,
+        new_ip: str,
+        previous_ip: str | None,
+        changed_at: str,
+    ) -> None:
+        subtitle = f"当前公网 IP：{new_ip}"
+        message_lines = [
+            f"新的公网 IP：{new_ip}",
+            f"之前的公网 IP：{previous_ip or '首次记录'}",
+            f"更新时间：{format_timestamp(changed_at) or changed_at}",
+            "如果你有远程访问、DDNS 或端口映射配置，建议确认是否正常。",
+        ]
+        if settings.base_url:
+            message_lines.extend(["", f"管理页面：{settings.base_url.rstrip('/')}/"])
+        await self.send_message_push(
+            title="家里网络公网 IP 更新了",
+            subtitle=subtitle,
+            message="\n".join(message_lines),
         )
 
     async def send_test_email(self) -> None:
         mail_settings = self.get_mail_settings()
         body_lines = [
-            "This is a test message from Public IP Monitor.",
-            f"Time ({settings.timezone_label}): {format_timestamp(datetime.now(timezone.utc).isoformat())}",
-            "If you received this email, SMTP settings are working.",
+            "这是一封来自 Public IP Monitor 的测试邮件。",
+            "",
+            "如果你收到了这封邮件，说明当前 SMTP 配置可正常发送。",
+            f"测试时间：{format_timestamp(datetime.now(timezone.utc).isoformat())}",
         ]
+        if settings.base_url:
+            body_lines.extend(
+                [
+                    "",
+                    "管理页面：",
+                    f"{settings.base_url.rstrip('/')}/",
+                ]
+            )
         await self.send_email(
             mail_settings=mail_settings,
-            subject=f"{mail_settings.subject_prefix} SMTP test message",
+            subject=f"{mail_settings.subject_prefix} SMTP 测试邮件",
             body_lines=body_lines,
+        )
+
+    async def send_test_push(self) -> None:
+        message_lines = [
+            "这是一条来自 Public IP Monitor 的测试推送。",
+            f"测试时间：{format_timestamp(datetime.now(timezone.utc).isoformat())}",
+            "如果你收到了这条消息，说明消息推送助手已配置成功。",
+        ]
+        if settings.base_url:
+            message_lines.extend(["", f"管理页面：{settings.base_url.rstrip('/')}/"])
+        await self.send_message_push(
+            title="Public IP Monitor 测试推送",
+            subtitle="消息推送助手工作正常",
+            message="\n".join(message_lines),
         )
 
     async def check_once(self) -> None:
@@ -289,16 +451,39 @@ class PublicIPMonitor:
             notification_error = None
 
             if previous_ip is not None:
-                try:
-                    await self.send_change_email(
-                        new_ip=current_ip,
-                        previous_ip=previous_ip,
-                        changed_at=checked_at,
-                    )
-                    notification_status = "sent"
-                except Exception as exc:  # noqa: BLE001
+                sent_channels: list[str] = []
+                channel_errors: list[str] = []
+
+                if self.get_mail_settings().mail_enabled:
+                    try:
+                        await self.send_change_email(
+                            new_ip=current_ip,
+                            previous_ip=previous_ip,
+                            changed_at=checked_at,
+                        )
+                        sent_channels.append("邮件")
+                    except Exception as exc:  # noqa: BLE001
+                        channel_errors.append(f"邮件: {exc}")
+
+                if self.get_push_settings().push_enabled:
+                    try:
+                        await self.send_change_push(
+                            new_ip=current_ip,
+                            previous_ip=previous_ip,
+                            changed_at=checked_at,
+                        )
+                        sent_channels.append("推送助手")
+                    except Exception as exc:  # noqa: BLE001
+                        channel_errors.append(f"推送助手: {exc}")
+
+                if channel_errors:
                     notification_status = "failed"
-                    notification_error = str(exc)
+                    notification_error = "; ".join(channel_errors)
+                elif sent_channels:
+                    notification_status = "sent"
+                else:
+                    notification_status = "skipped"
+                    notification_error = "未配置任何通知渠道"
 
             set_state("current_ip", current_ip)
             set_state("last_change_at", checked_at)
@@ -367,4 +552,5 @@ class PublicIPMonitor:
         payload = asdict(self.get_snapshot())
         payload["changes"] = self.get_changes()
         payload["mail_settings"] = self.get_mail_settings().masked()
+        payload["push_settings"] = self.get_push_settings().masked()
         return payload

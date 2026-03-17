@@ -26,6 +26,7 @@ class Settings:
     app_port: int = _get_int("APP_PORT", 8000)
     base_url: str = os.getenv("BASE_URL", "")
     timezone_label: str = os.getenv("TIMEZONE_LABEL", "Asia/Shanghai")
+    database_url: str = os.getenv("DATABASE_URL", "")
     database_path: str = os.getenv("DATABASE_PATH", "/data/public_ip_monitor.db")
     check_interval_seconds: int = _get_int("CHECK_INTERVAL_SECONDS", 300)
     request_timeout_seconds: int = _get_int("REQUEST_TIMEOUT_SECONDS", 10)
@@ -52,6 +53,8 @@ class Settings:
         item.strip() for item in os.getenv("MAIL_TO", "").split(",") if item.strip()
     )
     default_subject_prefix: str = os.getenv("MAIL_SUBJECT_PREFIX", "[Public IP Monitor]")
+    default_message_push_enabled: bool = _get_bool("MESSAGE_PUSH_ENABLED", False)
+    default_message_push_url: str = os.getenv("MESSAGE_PUSH_URL", "")
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -59,6 +62,12 @@ class Settings:
             return ZoneInfo(self.timezone_label)
         except ZoneInfoNotFoundError:
             return ZoneInfo("UTC")
+
+    @property
+    def effective_database_url(self) -> str:
+        if self.database_url.strip():
+            return self.database_url.strip()
+        return f"sqlite:///{self.database_path}"
 
 
 settings = Settings()

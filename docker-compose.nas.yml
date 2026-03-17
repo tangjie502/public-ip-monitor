@@ -1,14 +1,47 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: public-ip-monitor-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-public_ip_monitor}
+      MYSQL_USER: ${MYSQL_USER:-public_ip_monitor}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_root_password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - 127.0.0.1
+        - -u
+        - ${MYSQL_USER:-public_ip_monitor}
+        - -p${MYSQL_PASSWORD:-change_me}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   public-ip-monitor:
     image: tuomasi502/public-ip-monitor:latest
     container_name: public-ip-monitor
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       APP_NAME: Public IP Monitor
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       BASE_URL: http://YOUR_NAS_IP:8000
       TIMEZONE_LABEL: Asia/Shanghai
+      DATABASE_URL: mysql://${MYSQL_USER:-public_ip_monitor}:${MYSQL_PASSWORD:-change_me}@mysql:3306/${MYSQL_DATABASE:-public_ip_monitor}
       DATABASE_PATH: /data/public_ip_monitor.db
       CHECK_INTERVAL_SECONDS: 300
       REQUEST_TIMEOUT_SECONDS: 10
@@ -23,6 +56,8 @@ services:
       MAIL_FROM: "your_mail_account@example.com"
       MAIL_TO: "receiver@example.com"
       MAIL_SUBJECT_PREFIX: "[Public IP Monitor]"
+      MESSAGE_PUSH_ENABLED: "false"
+      MESSAGE_PUSH_URL: "https://messagepush.luckfast.com/send/your_id/your_token"
     ports:
       - "8000:8000"
     volumes:

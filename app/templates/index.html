@@ -70,6 +70,10 @@
                   {{ snapshot.last_error or "无" }}
                 </dd>
               </div>
+              <div>
+                <dt>消息推送</dt>
+                <dd>{% if push_settings.push_enabled %}已启用{% else %}未配置{% endif %}</dd>
+              </div>
             </dl>
           </article>
 
@@ -81,34 +85,50 @@
               </div>
             </div>
             <form class="mail-form" method="post" action="/settings/mail">
-              <label>
-                <span>SMTP 主机</span>
-                <input type="text" name="smtp_host" value="{{ mail_settings.smtp_host }}" />
-              </label>
-              <label>
-                <span>SMTP 端口</span>
-                <input type="number" name="smtp_port" value="{{ mail_settings.smtp_port }}" />
-              </label>
-              <label>
-                <span>用户名</span>
-                <input type="text" name="smtp_username" value="{{ mail_settings.smtp_username }}" />
-              </label>
-              <label>
-                <span>密码</span>
-                <input type="password" name="smtp_password" value="{{ mail_settings.smtp_password }}" />
-              </label>
-              <label>
-                <span>发件人</span>
-                <input type="email" name="mail_from" value="{{ mail_settings.mail_from }}" />
-              </label>
-              <label>
-                <span>收件人</span>
-                <textarea name="mail_to" rows="3">{{ mail_settings.mail_to }}</textarea>
-              </label>
-              <label>
-                <span>邮件标题前缀</span>
-                <input type="text" name="subject_prefix" value="{{ mail_settings.subject_prefix }}" />
-              </label>
+              <div class="form-section">
+                <div class="form-section-heading">
+                  <strong>SMTP 服务器</strong>
+                  <span>填写服务地址、端口和登录凭据。</span>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    <span>SMTP 主机</span>
+                    <input type="text" name="smtp_host" value="{{ mail_settings.smtp_host }}" />
+                  </label>
+                  <label>
+                    <span>SMTP 端口</span>
+                    <input type="number" name="smtp_port" value="{{ mail_settings.smtp_port }}" />
+                  </label>
+                  <label>
+                    <span>用户名</span>
+                    <input type="text" name="smtp_username" value="{{ mail_settings.smtp_username }}" />
+                  </label>
+                  <label>
+                    <span>密码</span>
+                    <input type="password" name="smtp_password" value="{{ mail_settings.smtp_password }}" />
+                  </label>
+                </div>
+              </div>
+              <div class="form-section">
+                <div class="form-section-heading">
+                  <strong>发信设置</strong>
+                  <span>收件人支持多个地址，使用英文逗号分隔。</span>
+                </div>
+                <div class="form-grid">
+                  <label class="field-span-full">
+                    <span>发件人</span>
+                    <input type="email" name="mail_from" value="{{ mail_settings.mail_from }}" />
+                  </label>
+                  <label class="field-span-full">
+                    <span>收件人</span>
+                    <textarea name="mail_to" rows="3">{{ mail_settings.mail_to }}</textarea>
+                  </label>
+                  <label class="field-span-full">
+                    <span>邮件标题前缀</span>
+                    <input type="text" name="subject_prefix" value="{{ mail_settings.subject_prefix }}" />
+                  </label>
+                </div>
+              </div>
               <div class="switch-row">
                 <label class="checkbox">
                   <input
@@ -138,7 +158,55 @@
                   formaction="/settings/mail/test"
                   formmethod="post"
                 >
-                  发送测试邮件
+                  保存并测试邮件
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">Message Push</p>
+                <h2>消息推送助手</h2>
+              </div>
+            </div>
+            <form class="mail-form" method="post" action="/settings/push">
+              <div class="form-section">
+                <div class="form-section-heading">
+                  <strong>推送接口</strong>
+                  <span>粘贴完整发送地址，系统会自动替换 title、subtitle、message 参数。</span>
+                </div>
+                <div class="form-grid">
+                  <label class="field-span-full">
+                    <span>推送地址</span>
+                    <textarea name="message_push_url" rows="4">{{ push_settings.push_url }}</textarea>
+                  </label>
+                </div>
+              </div>
+              <div class="switch-row">
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    name="message_push_enabled"
+                    value="true"
+                    {% if push_settings.enabled %}checked{% endif %}
+                  />
+                  <span>启用消息推送助手</span>
+                </label>
+              </div>
+              <p class="form-hint">
+                可直接使用你提供的完整 URL；发送时会覆盖其中的 `title`、`subtitle` 和 `message`。
+              </p>
+              <div class="form-actions">
+                <button type="submit" class="button button-primary">保存推送配置</button>
+                <button
+                  type="submit"
+                  class="button button-secondary"
+                  formaction="/settings/push/test"
+                  formmethod="post"
+                >
+                  保存并测试推送
                 </button>
               </div>
             </form>
@@ -164,16 +232,16 @@
                   <th>时间</th>
                   <th>IP</th>
                   <th>来源</th>
-                  <th>邮件</th>
+                  <th>通知</th>
                 </tr>
               </thead>
               <tbody>
                 {% for item in changes %}
                 <tr>
-                  <td>{{ item.changed_at }}</td>
-                  <td class="mono">{{ item.ip_address }}</td>
-                  <td>{{ item.source }}</td>
-                  <td>
+                  <td data-label="时间">{{ item.changed_at }}</td>
+                  <td data-label="IP" class="mono">{{ item.ip_address }}</td>
+                  <td data-label="来源">{{ item.source }}</td>
+                  <td data-label="通知">
                     <span class="badge badge-{{ item.notification_status }}">
                       {% if item.notification_status == "sent" %}
                       已发送
