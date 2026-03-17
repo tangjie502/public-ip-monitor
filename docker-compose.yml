@@ -2,6 +2,8 @@ services:
   mysql:
     image: mysql:8.4
     container_name: public-ip-monitor-mysql
+    profiles:
+      - local-db
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-public_ip_monitor}
@@ -34,16 +36,15 @@ services:
     build: .
     container_name: public-ip-monitor
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
       APP_NAME: Public IP Monitor
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       BASE_URL: http://localhost:8000
       TIMEZONE_LABEL: Asia/Shanghai
-      DATABASE_URL: mysql://${MYSQL_USER:-public_ip_monitor}:${MYSQL_PASSWORD:-change_me}@mysql:3306/${MYSQL_DATABASE:-public_ip_monitor}
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      DATABASE_URL: mysql://${MYSQL_USER:-public_ip_monitor}:${MYSQL_PASSWORD:-change_me}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-public_ip_monitor}
       DATABASE_PATH: /data/public_ip_monitor.db
       CHECK_INTERVAL_SECONDS: 300
       REQUEST_TIMEOUT_SECONDS: 10
@@ -59,7 +60,8 @@ services:
       MAIL_TO: ""
       MAIL_SUBJECT_PREFIX: "[Public IP Monitor]"
       MESSAGE_PUSH_ENABLED: "false"
-      MESSAGE_PUSH_URL: ""
+      MESSAGE_PUSH_USER_ID: ""
+      MESSAGE_PUSH_USER_KEY: ""
     ports:
       - "8000:8000"
     volumes:

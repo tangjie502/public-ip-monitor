@@ -27,6 +27,8 @@ class Settings:
     base_url: str = os.getenv("BASE_URL", "")
     timezone_label: str = os.getenv("TIMEZONE_LABEL", "Asia/Shanghai")
     database_url: str = os.getenv("DATABASE_URL", "")
+    mysql_host: str = os.getenv("MYSQL_HOST", "mysql")
+    mysql_port: int = _get_int("MYSQL_PORT", 3306)
     database_path: str = os.getenv("DATABASE_PATH", "/data/public_ip_monitor.db")
     check_interval_seconds: int = _get_int("CHECK_INTERVAL_SECONDS", 300)
     request_timeout_seconds: int = _get_int("REQUEST_TIMEOUT_SECONDS", 10)
@@ -54,7 +56,8 @@ class Settings:
     )
     default_subject_prefix: str = os.getenv("MAIL_SUBJECT_PREFIX", "[Public IP Monitor]")
     default_message_push_enabled: bool = _get_bool("MESSAGE_PUSH_ENABLED", False)
-    default_message_push_url: str = os.getenv("MESSAGE_PUSH_URL", "")
+    default_message_push_user_id: str = os.getenv("MESSAGE_PUSH_USER_ID", "")
+    default_message_push_user_key: str = os.getenv("MESSAGE_PUSH_USER_KEY", "")
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -67,6 +70,14 @@ class Settings:
     def effective_database_url(self) -> str:
         if self.database_url.strip():
             return self.database_url.strip()
+        mysql_database = os.getenv("MYSQL_DATABASE", "").strip()
+        mysql_user = os.getenv("MYSQL_USER", "").strip()
+        mysql_password = os.getenv("MYSQL_PASSWORD", "").strip()
+        if mysql_database and mysql_user:
+            return (
+                f"mysql://{mysql_user}:{mysql_password}"
+                f"@{self.mysql_host}:{self.mysql_port}/{mysql_database}"
+            )
         return f"sqlite:///{self.database_path}"
 
 

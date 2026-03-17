@@ -21,8 +21,8 @@
 
 ## 快速开始
 
-1. 默认的 `docker-compose.yml` 会同时启动 `public-ip-monitor` 和 `mysql`，应用默认连接容器内 MySQL。
-   先基于 `.env.example` 创建 `.env`，至少修改 MySQL 密码：
+1. 默认的 `docker-compose.yml` 只启动 `public-ip-monitor`，用于连接外部 MySQL。
+   先基于 `.env.example` 创建 `.env`，填写你的外部 MySQL 地址和账号：
 
    ```bash
    cp .env.example .env
@@ -34,7 +34,19 @@
    environment:
      BASE_URL: http://你的NAS地址:8000
      TIMEZONE_LABEL: Asia/Shanghai
-     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+     MYSQL_HOST: mysql
+     MYSQL_PORT: 3306
+   ```
+
+   例如你的 `.env` 可以这样写：
+
+   ```env
+   MYSQL_HOST=192.168.1.100
+   MYSQL_PORT=3306
+   MYSQL_DATABASE=public_ip_monitor
+   MYSQL_USER=public_ip_monitor
+   MYSQL_PASSWORD=your_password
+   MYSQL_ROOT_PASSWORD=unused_when_using_external_mysql
    ```
 
 3. 启动服务：
@@ -54,7 +66,7 @@
 
 ## 数据库配置
 
-当前仓库中的 `docker-compose.yml` 和 `docker-compose.nas.yml` 默认都带有 MySQL 容器。
+当前仓库中的 `docker-compose.yml` 和 `docker-compose.nas.yml` 默认都用于连接外部 MySQL，不会自动启动内置 MySQL。
 
 如果你想改回 SQLite，清空 `DATABASE_URL`，并使用 `DATABASE_PATH`，例如：
 
@@ -63,18 +75,32 @@ DATABASE_URL: ""
 DATABASE_PATH: /data/public_ip_monitor.db
 ```
 
-如需连接外部 MySQL，设置 `DATABASE_URL`：
+推荐优先使用拆分后的 MySQL 参数：
+
+```yaml
+MYSQL_HOST: 你的MySQL地址
+MYSQL_PORT: 3306
+MYSQL_DATABASE: public_ip_monitor
+MYSQL_USER: your_user
+MYSQL_PASSWORD: your_password
+```
+
+如需连接外部 MySQL，也可以直接设置 `DATABASE_URL`：
 
 ```yaml
 DATABASE_URL: mysql://username:password@mysql-host:3306/public_ip_monitor
 ```
 
-当 `DATABASE_URL` 非空时，系统会优先连接 MySQL，忽略 `DATABASE_PATH`。
-如果继续使用仓库内置 MySQL，建议通过 `.env` 管理账号密码，而不是直接改 Compose 文件。
+当 `DATABASE_URL` 非空时，系统会优先使用它；否则会根据 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD` 自动拼接 MySQL 连接串。两者都没有时，才回退到 `DATABASE_PATH` 对应的 SQLite。
+如果你想临时启用仓库内置 MySQL，可显式带上 profile：
+
+```bash
+docker compose --profile local-db up -d --build
+```
 
 ## NAS 直接拉镜像部署
 
-如果 NAS 不方便上传源码，可直接使用镜像版 Compose。当前示例同样包含 MySQL 服务：
+如果 NAS 不方便上传源码，可直接使用镜像版 Compose。当前示例也保留了一个可选的内置 MySQL profile：
 
 ```yaml
 services:
@@ -103,7 +129,9 @@ services:
     environment:
       BASE_URL: http://你的NAS地址:8000
       TIMEZONE_LABEL: Asia/Shanghai
-      DATABASE_URL: mysql://${MYSQL_USER:-public_ip_monitor}:${MYSQL_PASSWORD:-change_me}@mysql:3306/${MYSQL_DATABASE:-public_ip_monitor}
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      DATABASE_URL: mysql://${MYSQL_USER:-public_ip_monitor}:${MYSQL_PASSWORD:-change_me}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-public_ip_monitor}
       DATABASE_PATH: /data/public_ip_monitor.db
       CHECK_INTERVAL_SECONDS: 300
       REQUEST_TIMEOUT_SECONDS: 10
@@ -119,7 +147,8 @@ services:
       MAIL_TO: receiver@example.com
       MAIL_SUBJECT_PREFIX: "[Public IP Monitor]"
       MESSAGE_PUSH_ENABLED: "false"
-      MESSAGE_PUSH_URL: https://messagepush.luckfast.com/send/your_id/your_token
+      MESSAGE_PUSH_USER_ID: your_user_id
+      MESSAGE_PUSH_USER_KEY: your_user_key
     ports:
       - "8000:8000"
     volumes:
@@ -145,7 +174,8 @@ services:
 - 使用默认 Compose 的 MySQL 时，通过 `./mysql-data` 卷保留数据库
 - 如果使用 MySQL，建议单独创建数据库，例如 `public_ip_monitor`
 - 如果 SMTP 服务要求 SSL，设置 `SMTP_SSL=true` 且 `SMTP_STARTTLS=false`
-- 如果使用消息推送助手，可直接粘贴完整发送 URL；系统会自动覆盖 `title`、`subtitle` 和 `message` 查询参数
+- 如果使用消息推送助手，只需要填写 `MESSAGE_PUSH_USER_ID` 和 `MESSAGE_PUSH_USER_KEY`
+- 推送地址固定为 `https://messagepush.luckfast.com/send/`，系统会自动拼接 `用户 ID / 用户 Key`，并追加 `title`、`subtitle`、`message`
 - 建议给容器配置固定时区标识，仅用于页面展示；数据库时间统一保存为 UTC ISO 时间
 
 ## 目录结构

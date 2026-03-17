@@ -175,12 +175,16 @@
               <div class="form-section">
                 <div class="form-section-heading">
                   <strong>推送接口</strong>
-                  <span>粘贴完整发送地址，系统会自动替换 title、subtitle、message 参数。</span>
+                  <span>固定使用 `https://messagepush.luckfast.com/send/`，系统会自动拼接用户 ID、用户 Key 和消息参数。</span>
                 </div>
                 <div class="form-grid">
-                  <label class="field-span-full">
-                    <span>推送地址</span>
-                    <textarea name="message_push_url" rows="4">{{ push_settings.push_url }}</textarea>
+                  <label>
+                    <span>用户 ID</span>
+                    <input type="text" name="message_push_user_id" value="{{ push_settings.user_id }}" />
+                  </label>
+                  <label>
+                    <span>用户 Key</span>
+                    <input type="text" name="message_push_user_key" value="{{ push_settings.user_key }}" />
                   </label>
                 </div>
               </div>
@@ -196,7 +200,7 @@
                 </label>
               </div>
               <p class="form-hint">
-                可直接使用你提供的完整 URL；发送时会覆盖其中的 `title`、`subtitle` 和 `message`。
+                发送时会自动附加 `title`、`subtitle` 和 `message` 查询参数，无需手动拼接 URL。
               </p>
               <div class="form-actions">
                 <button type="submit" class="button button-primary">保存推送配置</button>

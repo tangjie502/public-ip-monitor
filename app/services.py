@@ -10,7 +10,7 @@ import ssl
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode
 
 import httpx
 
@@ -109,16 +109,18 @@ def format_timestamp(value: str | None) -> str | None:
 @dataclass(slots=True)
 class PushSettings:
     enabled: bool
-    push_url: str
+    user_id: str
+    user_key: str
 
     @property
     def push_enabled(self) -> bool:
-        return self.enabled and bool(self.push_url.strip())
+        return self.enabled and bool(self.user_id.strip() and self.user_key.strip())
 
     def masked(self) -> dict[str, object]:
         return {
             "enabled": self.enabled,
-            "push_url": self.push_url,
+            "user_id": self.user_id,
+            "user_key": self.user_key,
             "push_enabled": self.push_enabled,
         }
 
@@ -155,7 +157,8 @@ class PublicIPMonitor:
     def ensure_default_push_settings(self) -> None:
         defaults = {
             "message_push_enabled": str(settings.default_message_push_enabled).lower(),
-            "message_push_url": settings.default_message_push_url,
+            "message_push_user_id": settings.default_message_push_user_id,
+            "message_push_user_key": settings.default_message_push_user_key,
         }
         values_to_seed: dict[str, str] = {}
         for key, value in defaults.items():
@@ -211,13 +214,15 @@ class PublicIPMonitor:
                 get_state("message_push_enabled"),
                 settings.default_message_push_enabled,
             ),
-            push_url=get_state("message_push_url") or "",
+            user_id=get_state("message_push_user_id") or settings.default_message_push_user_id,
+            user_key=get_state("message_push_user_key") or settings.default_message_push_user_key,
         )
 
     def update_push_settings(self, form_data: dict[str, str]) -> PushSettings:
         values = {
             "message_push_enabled": str(parse_bool(form_data.get("message_push_enabled"))).lower(),
-            "message_push_url": form_data.get("message_push_url", "").strip(),
+            "message_push_user_id": form_data.get("message_push_user_id", "").strip(),
+            "message_push_user_key": form_data.get("message_push_user_key", "").strip(),
         }
         set_many_state(values)
         return self.get_push_settings()
@@ -296,28 +301,21 @@ class PublicIPMonitor:
     def _build_message_push_url(
         self,
         *,
-        push_url: str,
+        push_settings: PushSettings,
         title: str,
         subtitle: str,
         message: str,
     ) -> str:
-        parsed = urlsplit(push_url.strip())
-        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-        query.update(
+        query = urlencode(
             {
                 "title": title,
                 "subtitle": subtitle,
                 "message": message,
             }
         )
-        return urlunsplit(
-            (
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path,
-                urlencode(query),
-                parsed.fragment,
-            )
+        return (
+            "https://messagepush.luckfast.com/send/"
+            f"{push_settings.user_id.strip()}/{push_settings.user_key.strip()}?{query}"
         )
 
     async def send_message_push(self, *, title: str, subtitle: str, message: str) -> None:
@@ -326,7 +324,7 @@ class PublicIPMonitor:
             raise RuntimeError("消息推送助手未配置")
 
         request_url = self._build_message_push_url(
-            push_url=push_settings.push_url,
+            push_settings=push_settings,
             title=title,
             subtitle=subtitle,
             message=message,
