@@ -135,6 +135,13 @@ def extract_ip_from_text(value: str) -> str:
     raise ValueError("响应内容中未找到有效公网 IP")
 
 
+def format_service_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return message
+    return exc.__class__.__name__
+
+
 @dataclass(slots=True)
 class PushSettings:
     enabled: bool
@@ -258,7 +265,15 @@ class PublicIPMonitor:
 
     async def fetch_public_ip(self) -> tuple[str, str]:
         timeout = httpx.Timeout(settings.request_timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        headers = {
+            "User-Agent": "curl/8.7.1",
+            "Accept": "text/plain,*/*",
+        }
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=headers,
+        ) as client:
             errors: list[str] = []
             for service in settings.public_ip_services:
                 try:
@@ -267,7 +282,7 @@ class PublicIPMonitor:
                     ip_text = extract_ip_from_text(response.text)
                     return ip_text, service
                 except Exception as exc:  # noqa: BLE001
-                    errors.append(f"{service}: {exc}")
+                    errors.append(f"{service}: {format_service_error(exc)}")
             raise RuntimeError("; ".join(errors) or "No public IP service configured")
 
     async def send_email(
