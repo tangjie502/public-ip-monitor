@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 定时轮询多个公网 IP 查询服务，自动容错
+- 定时轮询公网 IP 查询服务，自动容错，默认使用 `http://cip.cc`
 - 首次启动记录当前公网 IP，后续检测到变化时发送通知
 - SQLite / MySQL 持久化 IP 变动记录
 - Web 页面展示当前公网 IP、最近检查状态和变动日志
@@ -123,9 +123,6 @@ services:
     image: tuomasi502/public-ip-monitor:latest
     container_name: public-ip-monitor
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
       BASE_URL: http://你的NAS地址:8000
       TIMEZONE_LABEL: Asia/Shanghai
@@ -136,7 +133,7 @@ services:
       CHECK_INTERVAL_SECONDS: 300
       REQUEST_TIMEOUT_SECONDS: 10
       STARTUP_CHECK_ENABLED: "true"
-      PUBLIC_IP_SERVICES: https://api.ipify.org,https://ipv4.icanhazip.com,https://ifconfig.me/ip
+      PUBLIC_IP_SERVICES: http://cip.cc
       SMTP_HOST: smtp.example.com
       SMTP_PORT: 587
       SMTP_USERNAME: your_mail_account@example.com

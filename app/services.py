@@ -106,6 +106,35 @@ def format_timestamp(value: str | None) -> str | None:
     return dt.astimezone(settings.timezone).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def extract_ip_from_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        raise ValueError("响应内容为空")
+    try:
+        ipaddress.ip_address(text)
+        return text
+    except ValueError:
+        pass
+
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        if ":" not in candidate:
+            continue
+        _, raw_value = candidate.split(":", 1)
+        ip_text = raw_value.strip()
+        if not ip_text:
+            continue
+        try:
+            ipaddress.ip_address(ip_text)
+            return ip_text
+        except ValueError:
+            continue
+
+    raise ValueError("响应内容中未找到有效公网 IP")
+
+
 @dataclass(slots=True)
 class PushSettings:
     enabled: bool
@@ -235,8 +264,7 @@ class PublicIPMonitor:
                 try:
                     response = await client.get(service)
                     response.raise_for_status()
-                    ip_text = response.text.strip()
-                    ipaddress.ip_address(ip_text)
+                    ip_text = extract_ip_from_text(response.text)
                     return ip_text, service
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{service}: {exc}")
