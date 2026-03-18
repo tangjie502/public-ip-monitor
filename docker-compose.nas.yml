@@ -47,7 +47,7 @@ services:
       CHECK_INTERVAL_SECONDS: 300
       REQUEST_TIMEOUT_SECONDS: 10
       STARTUP_CHECK_ENABLED: "true"
-      PUBLIC_IP_SERVICES: http://cip.cc
+      PUBLIC_IP_SERVICES: https://api.ipify.org,https://ipv4.icanhazip.com,https://ifconfig.me/ip,http://cip.cc
       SMTP_HOST: ""
       SMTP_PORT: 587
       SMTP_USERNAME: "your_mail_account@example.com"

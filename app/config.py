@@ -37,6 +37,9 @@ class Settings:
         item.strip()
         for item in os.getenv(
             "PUBLIC_IP_SERVICES",
+            "https://api.ipify.org,"
+            "https://ipv4.icanhazip.com,"
+            "https://ifconfig.me/ip,"
             "http://cip.cc",
         ).split(",")
         if item.strip()
